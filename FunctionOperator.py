@@ -36,6 +36,8 @@ import csv
 import tkinter as tk
 from tkinter import filedialog
 import openpyxl
+import tkinter as tk
+from tkinter import messagebox
 
 
 
@@ -83,21 +85,16 @@ class AntiMather:
         index_of_right_par=-1
         if index_of_left_par>0:
             index_of_right_par=find_matching_parenthesis(new_str,starting_location=index_of_left_par,parenthesis_type="[]")
-            term_interval_before_par=smallest_complete_term_interval(new_str,index_of_left_par-1)
-            term_part=new_str[term_interval_before_par[0]:term_interval_before_par[1]]
+            #term_interval_before_par=smallest_complete_term_interval(new_str,index_of_left_par-1)
+            term_interval_before_par=find_matching_parenthesis(new_str,index_of_left_par-1,parenthesis_type="()")#changed to this 9.3.
+            #term_part=new_str[term_interval_before_par[0]:term_interval_before_par[1]]
+            term_part=new_str[term_interval_before_par:index_of_left_par]#changed to this 9.3.
             index_part=new_str[index_of_left_par:index_of_right_par+1]
             new_str=new_str.replace(term_part+index_part,"INDEX(("+index_part[1:-1]+"),"+term_part+")")
             while new_str != function_str and new_str.find("[")>0:
                 function_str=new_str
-                index_of_left_par=new_str.find("[")
-                index_of_right_par=-1
-                if index_of_left_par>0:
-                    index_of_right_par=find_matching_parenthesis(new_str,starting_location=index_of_left_par,parenthesis_type="[]")
-                    term_interval_before_par=smallest_complete_term_interval(new_str,index_of_left_par-1)
-                    term_part=new_str[term_interval_before_par[0]:term_interval_before_par[1]]
-                    index_part=new_str[index_of_left_par:index_of_right_par]
-                    new_str=new_str.replace(term_part+index_part,"INDEX(("+index_part[1:-1]+"),"+term_part+")")
-            function_str=new_str
+                return self.indexify(function_str)
+
         return new_str
 
     #this turns functions of type INDEX(index_nro,(vector_com1,vector_comp2,...)) to vector_comp_index_nro
@@ -109,7 +106,29 @@ class AntiMather:
             new_function_str=self.indexvalue_step(self.function_str)
 
 
-    def indexvalue_step(self,strin):#SOMEWHAT TESTED
+    def indexvalue_step(self,strin):
+        if strin.find("INDEX")==-1: #faster calculating
+            return strin
+        start_index=strin.find("INDEX")
+        left_par_index=start_index+5
+        right_par_index=find_matching_parenthesis(strin,left_par_index)
+        component_strs=vector_components(strin[left_par_index:right_par_index+1])
+        multi_index=[]
+        try:
+            multi_index=vector_components(component_strs[0])
+            for i in range(len(multi_index)):
+                multi_index[i]=int(float(multi_index[i]))
+        except SyntaxError: #if there were symbols that couldn't be turn ints in multi_index 
+            return strin
+        except ValueError: #if there were symbols that couldn't be turn ints in multi_index 
+            return strin
+        replacer_str=tensor_component(multi_index,component_strs[1])
+        return strin[:start_index]+replacer_str+strin[right_par_index+1:]
+
+
+
+
+    def indexvalue_step_old(self,strin):#SOMEWHAT TESTED
         if strin.find("INDEX")==-1: #faster calculating
             return strin
         success=False
@@ -141,6 +160,8 @@ class AntiMather:
                                 multi_index.append(int(float(multi_index_component_strs[i])))
                         except SyntaxError:#it might be that we have for example function like mod(x,2) inside arguments[0], 
                             return strin #this must then be processed elsewhere, before returning here
+                        except ValueError:#it might be that we have for example function like mod(x,2) inside arguments[0], 
+                            return strin #this must then be processed elsewhere, before returning here
                     replacer=""
                     try:
                         replacer=tensor_component(multi_index,arguments[1])
@@ -148,6 +169,7 @@ class AntiMather:
                         success=False
                     if success:
                         return strin[:interval[0]:]+ replacer +strin[interval[1]:]
+
         return strin
 
 
@@ -290,7 +312,6 @@ class AntiMather:
             if sign_type=="-" and strin[sign_index-1]=="(": #this happens when there is thing like forward(-2-3), we put and extra 0
                 #to make it look like forward(0-2-3)
                 return self.replace_first_sign(strin[:sign_index]+"0"+strin[sign_index:],sign_operator_dict)
-            
             previous_term_interval=0
             previous_term_interval= smallest_complete_term_interval(strin,sign_index-1)
             following_term_interval= smallest_complete_term_interval(strin,sign_index+1)
@@ -449,11 +470,13 @@ class FunctionDatabase:
         for key in self.variable_dict.keys():
             variable_list.append((key,self.variable_dict[key]))
         return variable_list
+    
+
     #this processes the function_str to non_reducable format including only non_reducable functions, 
     #special_functions and math_functions
     #NOTE this is the main function
-
     def process_function_str(self,function_str):#SOME TESTING DONE
+        #add_to_call_counter("process_function_str")
         new_function_str=self.math_rid(function_str) #gets rid of +,- etc, also created AND-operators
         new_function_str=self.reduse(new_function_str) #gets rid of non reducable functions
         while new_function_str != function_str:
@@ -467,6 +490,7 @@ class FunctionDatabase:
 
     #first assigns the variables in variable_dict to function_str and then process the function_str returning it afterwards
     def assign_variables_and_process(self,function_str):#
+        #add_to_call_counter("assign_variables_and_process")
         particles=list_of_particles(function_str)
         replaced_particles=[]
         variable_keys=self.variable_dict.keys()
@@ -482,7 +506,7 @@ class FunctionDatabase:
     #if there is one == symbol, the function defined by by outputmodel of 'split[0]=split[1]' is saved
     #if there is no == symbols, total_function_str is split by "|" and processed in order, if there are definition of variables 
     #marked by '=', then those are done also in orders and assigned to all strings when it is time to process them
-    def process_all(self,total_function_str):
+    def process_all(self,total_function_str):       
         if count("==",total_function_str) not in [0,1]:
             return "syntax error" #too many function_assignments
         if count("==",total_function_str)==1: #we assign new function
@@ -496,11 +520,10 @@ class FunctionDatabase:
                 if count("=",command_array[i])==1:
                     self.add_variable(command_array[i].split("=")[0],command_array[i].split("=")[1])
                     new_function_str += command_array[i]+"|" #modification 26.1. we leave the assignment to be seen so that turtle variables are easier to handle in main program
-
                 if count("=",command_array[i])==0:
                     command_to_add= self.assign_variables_and_process(command_array[i])
                     new_function_str += command_to_add+"|"#as a last operation, we use loops, if this is done earlier, it might make extra loops
-            total_function_str=self.all_loops(total_function_str,cutting_symbol="|") #added 24.1.
+            total_function_str=self.all_loops(total_function_str,cutting_symbol="|") #added 24.1. 
             new_function_str=new_function_str.strip("|")
             return new_function_str
                 
@@ -570,6 +593,7 @@ class FunctionDatabase:
 
     #makes signs ^,*,/,+ and - to disappear replacing them be pow, prod, etc. and created AND-operators
     def math_rid(self,function_str): #SOMEWHAT TESTED
+        #add_to_call_counter("math_rid")
         function_str=add_missing_multiplication_signs(function_str)
         antti=AntiMather(function_str)
         return antti.function_str
@@ -638,7 +662,7 @@ class FunctionDatabase:
         if arguments[0]==arguments[1]:
             return arguments[2]
         if is_real(arguments[0]) and is_real(arguments[1]):
-            if abs(float(arguments[0])-float(arguments[1]))<0.00000001: #if we have two numbers close enough, we consider them the same
+            if float(arguments[0])-float(arguments[1])>0.00000001: #if first argument is greater than second, then the thing in argument[2] is performed
                 return arguments[2] #otherwise for example 2.0 would be different to 2
             else:
                 if len(arguments)==4: #user can input an optional fourth argument that tells what happens if condition if false
@@ -795,14 +819,43 @@ class FunctionDatabase:
         return function_str
 
     #adds new variable to this database, it is not saved when program closes
+    #this can also change value of already existing variable.
+    #or if variable_name is of type  "var[index]", and var exists, then var[index] is changed to the value "variable_assignment_code"
     def add_variable(self,variable_name,variable_assignment_code):#SOME TESTING DONE
+        if len(variable_name)==0:
+            return
         if variable_name in self.reserved_names:
+            return
+        if variable_name[-1]=="]": #this happens when we have "var[index]" as variable name
+            #if the actual name part of this variable is variable that is already saved, then this assign value to its index
+            self.try_to_change_index(variable_name,variable_assignment_code)
             return
         if type_of(variable_name)!="alpha_starter": 
             raise SyntaxError("Variable name is not ok")
         if is_syntax_ok(variable_assignment_code)==False:
             raise SyntaxError("assignment syntax fails")
         self.variable_dict[variable_name]=self.assign_variables_and_process(variable_assignment_code)
+
+    #if this so called 'variable_name' is actually str of type name[index], then this changes the value of this index to variable_assignment_code
+    def try_to_change_index(self,variable_name,variable_assignment_code): #SOMEWHAT TESTED
+        if len(variable_name)==0:
+            return
+        if variable_name[-1]!="]":
+            return
+        left_par_index=find_matching_parenthesis(variable_name,len(variable_name)-1,"[]")
+        real_variable_name=variable_name[:left_par_index]
+        index_str=variable_name[left_par_index:]
+        multi_index_comps=vector_components(index_str,parenthesis_type="[]")
+        multi_index=[]
+        for i in range(len(multi_index_comps)):
+            multi_index.append(int(multi_index_comps[i]))
+        if real_variable_name in self.variable_dict.keys():
+            replacing_value=self.process_function_str(variable_assignment_code)
+            variable_str=self.variable_dict[real_variable_name]
+            new_variable_assignment_str=str_with_changed_tensor_component(variable_str,multi_index,replacing_value)
+            self.variable_dict[real_variable_name]=new_variable_assignment_str
+
+
 
     #adds a function to the database
     def add_function(self,function):#SOME TESTING DONE
@@ -908,6 +961,8 @@ class FunctionDatabase:
 #for example vector_components("(2,jojo,tyyppi(3),sipoo)") ->["2","jojo","tyyppi(3)","sipoo"]
 #parenthesis type tells, which parenthesis 'enclose' the vector components
 def vector_components(strin,parenthesis_type="()"):#TESTED
+    if len(strin)==0:
+        return []
     if strin[0] != parenthesis_type[0] or strin[-1] != parenthesis_type[1]:
         raise SyntaxError("This is not a vector, you lied to us!")
     without_ends=strin[1:-1]
@@ -916,6 +971,56 @@ def vector_components(strin,parenthesis_type="()"):#TESTED
     for i in range(1,len(comma_indexes)-1):
         vct_components.append(without_ends[comma_indexes[i]+1:comma_indexes[i+1]])
     return vct_components
+
+#for faster calculation this just gives the one components without producing an array
+def vector_component(index,strin,parenthesis_type="()"):
+    if strin[0] != parenthesis_type[0] or strin[-1] != parenthesis_type[1]:
+        raise SyntaxError("This is not a vector, you lied to us!")
+    without_ends=strin[1:-1]
+    comma_indexes=[-1]+[x for x in outest_comma_indexes(without_ends)]+[len(without_ends)]
+    if index in range(1,len(comma_indexes)):
+        return without_ends[comma_indexes[index-1]+1:comma_indexes[index]]
+    else:
+        return None
+    
+#given a vector like ["a","b","c","d",23,45]
+#returns a string representing it
+def vector_to_str(vector):
+    vector_str=""
+    if len(vector)>0:
+        vector_str +="("
+    else:
+        return ""
+    for i in range(len(vector)):
+        vector_str+=str(vector[i])+","
+    vector_str=vector_str[:-1]+")"
+    return vector_str
+
+#given variable_str liks (3,sd,5hjj,f), this returns a new variable str, with its 'index' component changed to 'new_value'
+#parenthesis type should probably always be "()""
+#for example str_with_changed_vector_component("(abc,def,jkl)",2,hiphop)->(abc,hiphop,jkl) 
+def str_with_changed_vector_component(variable_str,index,new_value):
+    without_ends=variable_str[1:-1]
+    comma_indexes=[-1]+[x for x in outest_comma_indexes(without_ends)]+[len(without_ends)] #[-1] instead of [0] makes changing first index work 
+    if index<len(comma_indexes) and index>0:
+        return variable_str[:comma_indexes[index-1]+2]+str(new_value)+variable_str[comma_indexes[index]+1:]
+    return variable_str
+
+#same as for vectors, but now with multi_index
+def str_with_changed_tensor_component(variable_str,multi_index,new_value):
+    l=len(multi_index)
+    if l==0:
+        return variable_str
+    if l==1:
+        index=multi_index[0]
+        return str_with_changed_vector_component(variable_str,index,new_value)
+    if l==2:
+        replacer_str=str_with_changed_vector_component(vector_component(multi_index[0],variable_str),multi_index[1],new_value)
+        return str_with_changed_vector_component(variable_str,multi_index[0],replacer_str)
+    if l>=3:
+        tensor_comp_to_change=tensor_component(multi_index[0:l-1],variable_str)
+        replacer_str=str_with_changed_tensor_component(tensor_comp_to_change,[multi_index[l-1]],new_value)
+        return str_with_changed_tensor_component(variable_str,multi_index[0:l-1],replacer_str)
 
 #this is meant to be used in occasion where we have just a number and we want to put parenthesis around it to make it
 #look like it is a vector
@@ -935,14 +1040,44 @@ def vectorise(strin,parenthesis_type="()"):
 def tensor_component(multi_index,strin,parenthesis_type="()"): #TESTED
     the_component=strin
     for i in range(len(multi_index)):
-        the_component=vector_components(the_component,parenthesis_type)[multi_index[i]-1]
+        the_component=vector_component(multi_index[i],the_component,parenthesis_type)
     return the_component
+    
 
 #this should be used cautiously since eg. in function_thing(2,3,4), (2,3,4) is not a vector
 def is_it_a_vector(strin):
     if strin[0]=="(" and strin[-1]==")":
         return True
     return False
+
+
+#taking string representing matrix, turns it to actual matrix
+def matrix_str_to_actual_matrix(matrix_str):
+    vector_strs=vector_components(matrix_str)
+    matrix=[]
+    for vector_str in vector_strs:
+        vector=vector_components(vector_str)
+        matrix.append(vector)
+    return matrix
+
+#given a matrix, returns its transpose
+def matrix_transpose(matrix):
+    transposed_matrix=[[matrix[j][i] for j in range(len(matrix))] for i in range(len(matrix[0]))]
+    return transposed_matrix
+
+#taking a matrix which elements might be numberts etc. returns a string describing it
+def actual_matrix_to_matrix_str(matrix):
+    row_strs=[]
+    for i in range(len(matrix)):
+        row_str="("
+        for j in range(len(matrix[0])):
+            row_str += str(matrix[i][j])+","
+        row_strs.append(row_str[:-1]+")")
+    return "("+",".join(row_strs)+")"
+
+#given a string representing matrix, returns its transposed string
+def transpose_matrix_str(matrix_str):
+    return actual_matrix_to_matrix_str(matrix_transpose(matrix_str_to_actual_matrix(matrix_str)))
 
 #given a string of type (a,b,c,...)+(e,f,g,...) or sum((a,b,c,...),(e,f,g,...)) returns a new string (sum(a,e),sum(b,f),...)
 #this a sum of the vectors, NOTE if vectors are different lengths, this produces vector assuming that shorter vector
@@ -1043,19 +1178,29 @@ def scalar_product_str(one_function_str):
         return replacer_str
     return one_function_str #if there was something wrong with arguments
 
-def find_matching_parenthesis(strin:str,starting_location:int,parenthesis_type="()"): #TESTED
+#finds the index of parenthesis matching the parenthesis of index 'starting_location', parenthesis type can be chosen
+def find_matching_parenthesis(strin:str,starting_location:int,parenthesis_type="()"): #TESTED, vchanged 9.3. to include searching pair for right_par
     counter=-1
     left_par=parenthesis_type[0]# this was changed, previously was just "("
     right_par=parenthesis_type[1]# and")""
-    if strin[starting_location] != left_par:
+    if strin[starting_location] not in [left_par,right_par]:
         raise ValueError("No parenthesis at starting location")
-    for i in range(starting_location+1,len(strin)):
-        if strin[i]==left_par:
-            counter = counter -1
-        if strin[i]==right_par:
-            counter = counter+1
-        if counter==0:
-            return i
+    if strin[starting_location] == left_par:
+        for i in range(starting_location+1,len(strin)):
+            if strin[i]==left_par:
+                counter = counter -1
+            if strin[i]==right_par:
+                counter = counter+1
+            if counter==0:
+                return i
+    if strin[starting_location] == right_par:
+        for i in range(1,starting_location+1):
+            if strin[starting_location-i]==right_par:
+                counter = counter -1
+            if strin[starting_location-i]==left_par:
+                counter = counter+1
+            if counter==0:
+                return starting_location-i
     raise ValueError("There is no pair for the parenthesis")
 
 #returns all the parenthesis pairs, for example parenthesis_pairs("joku()jok(())") -> [[4,5],[9,12],[10,11]]
@@ -1145,6 +1290,7 @@ def load_file_dialog():
                 string_to_return+= item.strip("'")+","
             string_to_return=string_to_return[:-1]+"),("
         string_to_return=string_to_return[:-2]+")"
+        string_to_return=transpose_matrix_str(string_to_return)#we want it in such a way that columns are easy to read
         return string_to_return
 
 
@@ -1372,7 +1518,11 @@ def smallest_complete_term_interval(function_str,starting_index): #SOMEWHAT TEST
     if this_particle=="[":
         if type_of(particles[this_particle_nro-1]) not in ["alpha_starter"]: #this happens 
             #when starting_index starts manydimensional parameter for example (23,45,12)
-            return [starting_index,find_matching_parenthesis(function_str,starting_index,"[]")+1]
+            new_starting_index=smallest_complete_term_interval(function_str,starting_index-1)[0]#this new line is meant to stop '[x]' being considered as a term
+            return [new_starting_index,find_matching_parenthesis(function_str,starting_index,"[]")+1]
+        
+    if this_particle=="]": #9.3. added this to solve bug with (a,b,c)[x]+1 type of strings where we want to 'find' the term before +
+        return smallest_complete_term_interval(function_str,find_matching_parenthesis(function_str,starting_index,parenthesis_type="[]"))
 
     if this_particle_type == "unholy_mess":
         raise SyntaxError("You have created a monster, repent and fix the syntax")
@@ -1394,6 +1544,12 @@ def smallest_complete_term_interval(function_str,starting_index): #SOMEWHAT TEST
     if this_particle=="(":
         if type_of(particles[this_particle_nro-1]) not in ["alpha_starter"]: #this happens 
             #when starting_index starts manydimensional parameter for example (23,45,12)
+            matching_parenthesis_index=find_matching_parenthesis(function_str,starting_index)
+            if matching_parenthesis_index==len(function_str)-1:#if closing ")" parenthesis is in the end, we take all the rest
+                return [starting_index,matching_parenthesis_index+1]
+            elif function_str[matching_parenthesis_index+1]=="[":#if after the closing ")" there is immeadiately a "["-bracket
+                #then the stuff inside []-brackets must be included into the term. 
+                return [starting_index,find_matching_parenthesis(function_str,matching_parenthesis_index+1,parenthesis_type="[]")+1]
             return [starting_index,find_matching_parenthesis(function_str,starting_index)+1]
         else:#this gets the function name included
             return smallest_complete_term_interval(function_str,max(0,starting_index-1))
@@ -1623,13 +1779,404 @@ def speed_test2():
     print("call_counter",call_dict)
     print("done")
         
-
 #given number, this tells what we should multiply it to get the smallest 10^n, which is larger than number and n is an integer 
 def multiplier_to_next_exponent_of_ten(number):
     exponent=math.log10(max(abs(number),0.000000001)) #we can't let zero value in because exponent would go to minus infinity
     return math.pow(10,1-exponent+math.floor(exponent))
 
+
+
+#this class creates a window which can be used to create csv files
+#it allows to systematically write the values on columns, this can be done using FunctionDatabase-object
+#import_function is a function you perform when using import_popup,
+#Idea is that if you want something to happen in the main program, when string is imported, you code the functionality of 
+#that in hte main program
+class CSVEditor:
+    def __init__(self, csvroot,db=FunctionDatabase(),import_function=None):
+        self.import_function=import_function
+        self.values=[] #this is matrix storing values
+        self.value_str=""
+        self.csvroot = csvroot
+        self.csvroot.title("CSV Editor")
+        self.max_window_height=500
+        self.max_window_width=800
+
+        self.rows = []
+        self.column_formulas = []
+        self.row_formulas = []
+        self.whole_formula = None #this is one slot that you can entry a formula, which fills all columns and rows
+
+        # Create a canvas with a fixed size and configure scroll region
+        self.canvas = tk.Canvas(self.csvroot, width=400, height=100)
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.frame = tk.Frame(self.canvas)
+        self.canvas.create_window((0, 0), window=self.frame, anchor="nw")
+        self.scrollbar = tk.Scrollbar(self.csvroot, orient=tk.VERTICAL, command=self.canvas.yview)
+        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.hscrollbar = tk.Scrollbar(self.csvroot, orient=tk.HORIZONTAL, command=self.canvas.xview)
+        self.hscrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        self.canvas.configure(xscrollcommand=self.hscrollbar.set)
+        self.canvas.bind('<Configure>', lambda e: self.canvas.configure(scrollregion =self.canvas.bbox("all")))
+
+
+        tk.Label(self.frame, text="Number of Rows:").grid(row=0, column=0)
+        self.rows_entry = tk.Entry(self.frame)
+        self.rows_entry.grid(row=0, column=1)
+
+        tk.Label(self.frame, text="Number of Columns:").grid(row=1, column=0)
+        self.columns_entry = tk.Entry(self.frame)
+        self.columns_entry.grid(row=1, column=1)
+
+
+        self.db=db
+
+        self.create_button = tk.Button(self.frame, text="Create CSV", command=self.create_csv)
+        self.create_button.grid(row=2, column=0)
+        self.load_button = tk.Button(self.frame, text="Load CSV", command=self.load_csv)
+        self.load_button.grid(row=2, column=1)
+
+
+    def refresh_value(self,column_nro,row_nro,new_value):
+        #print("self.values",self.values)
+        #print("row and col",row_nro,column_nro,new_value)
+        self.rows[row_nro-1][column_nro-1].delete(0,100000)
+        self.rows[row_nro-1][column_nro-1].insert(0, str(new_value))
+        self.values[row_nro-1][column_nro-1]=new_value #minus 1 since human user doesn't like 0
+        self.db.try_to_change_index(variable_name="cell["+str(column_nro) +","+str(row_nro)+"]",variable_assignment_code=str(new_value))
+
+    #values stored both in matrix format and str_format are refreshed
+    def refresh_values(self):
+        add_to_call_counter("refresh_values")
+        row=[]
+        self.values=[]
+        for i in range(len(self.rows)):
+            for j in range(len(self.rows[0])):
+                row.append(self.rows[i][j].get())
+            self.values.append(row)
+            row=[]
+        self.value_str=actual_matrix_to_matrix_str(self.values) #this is basicly needed only in the end when importing string
+        values_to_process=transpose_matrix_str(self.value_str) #this transposing is a test, trying to solve a bug
+        self.db.variable_dict["cell"]=values_to_process# try just this instead of next line
+        self.db.process_all("cell="+str(values_to_process)) #after this db should be able 
+        #to return matrix elements by "cell[i,j]" type commands
+
+    #doesn't do anything to values-variable
+    def mini_refresh_values(self):
+        #add_to_call_counter("mini_refresh_values")
+        row=[]
+        self.values=[]
+        for i in range(len(self.rows)):
+            for j in range(len(self.rows[0])):
+                row.append(self.rows[i][j].get())
+            self.values.append(row)
+            row=[]
+
+    def import_str(self):
+        def import_ready():
+            #self.refresh_values()
+            pair=(import_entry.get(),self.value_str)
+            if self.import_function != None:
+                self.import_function(pair)
+            import_pop.destroy()
+            return pair
+        import_pop = tk.Toplevel(self.csvroot)
+        import_label=tk.Label(import_pop,text="String name:")
+        import_label.grid(row=1,column=0)
+        import_entry=tk.Entry(import_pop)
+        import_entry.grid(row=1,column=1) 
+        import_button = tk.Button(import_pop, text="Import", command=import_ready)
+        import_button.grid(row=1, column=2)
+
+
+    def create_csv(self):
+        try:
+            self.remove_all_rows_and_formulas()
+            num_rows = int(self.rows_entry.get())
+            num_columns = int(self.columns_entry.get())
+            self.add_whole_formula_widget()
+            self.add_column_formula_widgets(num_columns)
+            self.add_row_formula_widgets(num_rows)
+            self.add_row_widgets(num_columns)
+            self.refresh_values()
+            #self.create_button.config(state=tk.DISABLED)
+        except ValueError:
+            messagebox.showerror("Error", "Please enter valid integer values for rows and columns.")
+
+    def load_csv(self):
+        filename = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
+        self.remove_all_rows_and_formulas()
+        if filename:
+            try:
+                with open(filename, 'r') as csvfile:
+                    csvreader = csv.reader(csvfile)
+                    rows = list(csvreader)
+                    num_rows = len(rows)
+                    num_columns = len(rows[0])
+                    self.rows_entry.delete(0, tk.END)
+                    self.rows_entry.insert(0, str(num_rows))
+                    self.columns_entry.delete(0, tk.END)
+                    self.columns_entry.insert(0, str(num_columns))
+                    self.add_whole_formula_widget()
+                    self.add_column_formula_widgets(num_columns)
+                    self.add_row_formula_widgets(num_rows)
+                #SAATTAA BUGATA COPY PASTETIN ENKÄ OO TESTANNU
+                    self.add_row_widgets(num_columns)
+                    for i in range(num_rows):
+                        for j in range(num_columns):
+                            self.rows[i][j].insert(0, rows[i][j])
+                messagebox.showinfo("Success", "CSV file loaded successfully!")
+                #self.refresh_values()
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to load CSV file: {e}")
+        self.adjust_canvas()
+
+    #add entry fields where user can input formula by which entrys in the same column will be filled
+    def add_column_formula_widgets(self, num_columns):
+        for row_widget in self.rows:
+            for entry in row_widget:
+                entry.destroy()
+
+        for column in range(int(self.columns_entry.get())):
+            entry = tk.Entry(self.frame,bg="lightblue")
+            entry.grid(row=3, column=column+1)
+            entry.insert(0,"y=")
+            self.column_formulas.append(entry)
+            entry.bind("<Return>",self.apply_formula)
+
+    #add entry fields where user can input formula by which entrys in the same row will be filled
+    def add_row_formula_widgets(self, num_rows):
+        for row in range(num_rows):
+            entry = tk.Entry(self.frame,bg="lightgreen")
+            entry.grid(row=row+4, column=0)
+            entry.insert(0,"x=")
+            self.row_formulas.append(entry)
+            entry.bind("<Return>",self.apply_formula)
+
+    def add_whole_formula_widget(self):
+        self.whole_formula = tk.Entry(self.frame,bg="pink") 
+        self.whole_formula.grid(row=3, column=0)
+        self.whole_formula.insert(0,"(x,y)=")
+        self.whole_formula.bind("<Return>",self.apply_formula)
+
+    def apply_formula(self,event):
+        print("applying formula")
+        self.refresh_values()
+        focused_thing=self.csvroot.focus_get() #if this is a formula entry then formula is applied
+        if focused_thing in self.column_formulas:
+            for i in range(len(self.column_formulas)):
+                if focused_thing==self.column_formulas[i]:
+                    self.apply_column_formula(i)
+        if focused_thing in self.row_formulas:
+            for i in range(len(self.row_formulas)):
+                if focused_thing==self.row_formulas[i]:
+                    self.apply_row_formula(i)
+        if focused_thing == self.whole_formula:
+            self.apply_whole_formula()
+
+        
+    def add_row_widgets(self, num_columns):
+        for row_widget in self.rows:
+            for entry in row_widget:
+                entry.destroy()
+
+        for _ in range(int(self.rows_entry.get())):
+            row = []
+            for column in range(int(self.columns_entry.get())):
+                entry = tk.Entry(self.frame)
+                entry.grid(row=len(self.rows) + 4, column=column+1)
+                row.append(entry)
+            self.rows.append(row)
+
+        self.save_button = tk.Button(self.frame, text="Save CSV", command=self.save_csv)
+        self.save_button.grid(row=2,column=2)
+        self.import_button = tk.Button(self.frame, text="Import as str", command=self.import_str)
+        self.import_button.grid(row=2,column=3)
+        self.add_row_button = tk.Button(self.frame, text="add row", command=self.add_row,repeatinterval=50,repeatdelay=300)
+        self.add_row_button.grid(row=1,column=3)
+        self.add_column_button = tk.Button(self.frame, text="add column", command=self.add_column,repeatinterval=50,repeatdelay=300)
+        self.add_column_button.grid(row=0,column=3)
+        self.remove_column_button = tk.Button(self.frame, text="remove column", command=self.remove_column,repeatinterval=50,repeatdelay=300)
+        self.remove_column_button.grid(row=0,column=2)
+        self.remove_row_button = tk.Button(self.frame, text="remove row", command=self.remove_row,repeatinterval=50,repeatdelay=300)
+        self.remove_row_button.grid(row=1,column=2)
+        self.info_label=tk.Label(self.frame,text="cell[x,y] for cell-value ")
+        self.info_label.grid(row=1,column=4,rowspan=2)
+        self.adjust_canvas()
+
+    #this makes the canvas_size to adjust to number of rows and columns
+    def adjust_canvas(self):
+        # Adjust canvas height if it exceeds maximum window height
+        canvas_height = len(self.rows) * 20 + 100  # Rough estimate for row height
+        print("canvas_height",canvas_height,self.max_window_height)
+        canvas_width=180
+
+        if len(self.rows)>0:
+            canvas_width= canvas_width+len(self.rows[0])*130
+        if canvas_width<400:#buttons do not show correctly without this
+            canvas_width=400
+        print("width is currently",self.canvas.winfo_width())
+        self.canvas.configure(width=min(canvas_width,self.max_window_width))
+        self.canvas.configure(height=min(canvas_height,self.max_window_height))
+        self.canvas.configure(scrollregion=self.canvas.bbox("all")) #scroll region used to by (0, 0, 400, canvas_height))
+
+    def remove_all_rows_and_formulas(self):
+        while len(self.rows)>=1:
+            self.remove_row(leave_something=False)
+        while len(self.column_formulas)>=1:
+            self.remove_column(leave_something=False)
+
+    #if there is a text written in the formula, then this text is processed by functiondatabase so that the row_number is
+    #replaced by x, like if user writes sin(x), then first row box gets the value sin(1), second sin(2) and so on
+    def apply_column_formulas(self):
+        for j in range(len(self.rows[0])):
+            self.apply_column_formula(j)
+
+    #defm adds one extra row
+    def add_row(self):
+        row=[]
+        for i in range(len(self.rows[0])):
+            entry = tk.Entry(self.frame)
+            entry.grid(row=len(self.rows) + 4, column=i+1)
+            row.append(entry)
+        row_formula_entry=tk.Entry(self.frame,bg="lightgreen")
+        row_formula_entry.insert(0,"x=")
+        row_formula_entry.grid(row=len(self.rows) + 4, column=0)
+        row_formula_entry.bind("<Return>",self.apply_formula)
+        self.row_formulas.append(row_formula_entry)
+        self.rows.append(row)
+        #self.refresh_values()
+        self.adjust_canvas()
+
+    #adds one extra column
+    def add_column(self):
+        for i in range(len(self.rows)):
+            entry = tk.Entry(self.frame)
+            self.rows[i].append(entry)
+            entry.grid(row=i+4,column=len(self.rows[0]))
+        column_formula_entry=tk.Entry(self.frame,bg="lightblue")
+        column_formula_entry.insert(0,"y=")
+        column_formula_entry.grid(row=3,column=len(self.rows[0]))
+        column_formula_entry.bind("<Return>",self.apply_formula)
+        self.column_formulas.append(column_formula_entry)
+        #self.refresh_values()
+        self.adjust_canvas()
+
+    #removes one column, if leave_something is False, can remove even the last column
+    def remove_column(self,leave_something=True):
+        if len(self.rows)==0: #if there is no rows left
+            self.column_formulas[-1].grid_forget()
+            self.column_formulas=self.column_formulas[:-1]
+        elif len(self.rows[0])>1 or (leave_something==False and len(self.rows[0])==1):
+            self.column_formulas[-1].grid_forget()
+            self.column_formulas=self.column_formulas[:-1]
+            for i in range(len(self.rows)):
+                self.rows[i][-1].grid_forget()
+                self.rows[i]=self.rows[i][:-1]
+        #self.refresh_values()
+        self.adjust_canvas()
+
+    #removes one row, if leave_something is False, can remove even the last row
+    def remove_row(self,leave_something=True):
+        if len(self.rows)>1 or (leave_something==False and len(self.rows)==1):
+            self.row_formulas[-1].grid_forget()
+            self.row_formulas=self.row_formulas[:-1]
+            for i in range(len(self.rows[0])):
+                self.rows[len(self.rows)-1][i].grid_forget()
+            self.rows=self.rows[:-1]
+        #self.refresh_values()
+        self.adjust_canvas()
+
+    def put_value_in(self,row_nro,column_nro,value):
+        if row_nro in range(len(self.rows)) and column_nro in range(len(self.rows[0])):
+            self.rows[row_nro][column_nro].delete(0,100000)
+            self.rows[row_nro][column_nro].insert(0,value)
+
+
+    def apply_column_formula(self,column_nro):
+        #self.refresh_values()
+        if self.column_formulas[column_nro].get() not in ["","y="]:
+            result_str=str(self.column_formulas[column_nro].get())
+            if result_str[0:2]=="y=":#in the case user leaves "y=" unthouched, it is removed here
+                result_str=result_str[2:]
+        for i in range(len(self.rows)):
+            y_value=str(i+1)
+            x_value=str(column_nro+1)
+            self.db.process_all("y="+y_value)
+            self.db.process_all("x="+x_value)
+            new_str=self.db.process_all(str(result_str))
+            #self.put_value_in(i,column_nro,new_str)
+            self.refresh_value(row_nro=int(y_value),column_nro=int(x_value),new_value=new_str)
+            print("refreshed")
+
+    def apply_whole_formula(self):
+        #self.refresh_values()
+        result_str=str(self.whole_formula.get())
+        if result_str[0:6]=="(x,y)=":#in the case user leaves "x=" unthouched, it is removed here
+            result_str=result_str[6:]
+        for i in range(len(self.rows)):
+            for j in range(len(self.rows[0])):
+                x_value=str(j+1)
+                y_value=str(i+1)
+                self.db.process_all("y="+y_value)
+                self.db.process_all("x="+x_value)
+                final_entry_str=self.db.process_all(str(result_str))
+                self.refresh_value(row_nro=int(y_value),column_nro=int(x_value),new_value=final_entry_str)
+
+
+    #if there is a text written in the formula, then this text is processed by functiondatabase so that the row_number is
+    #replaced by x, like if user writes sin(x), then first row box gets the value sin(1), second sin(2) and so on
+    def apply_row_formulas(self):
+        for j in range(len(self.rows)):
+            self.apply_row_formula(j)
+
+
+    def apply_row_formula(self,row_nro):
+        #self.refresh_values()
+        for j in range(len(self.rows[row_nro])):
+            if self.row_formulas[row_nro].get() not in ["","x="]:
+                result_str=str(self.row_formulas[row_nro].get())
+                x_value=str(j+1)
+                y_value=str(row_nro+1)
+                if result_str[0:2]=="x=":#in the case user leaves "x=" unthouched, it is removed here
+                    result_str=result_str[2:]
+                self.db.process_all("x="+x_value)
+                self.db.process_all("y="+y_value)
+                result_str=self.db.process_all(str(result_str)) 
+                self.refresh_value(row_nro=int(y_value),column_nro=int(x_value),new_value=result_str)
+                print("refreshed")
+                #self.refresh_values()
+
+
+
+
+
+
+    def save_csv(self):
+        filename = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV Files", "*.csv")])
+        if filename:
+            try:
+                with open(filename, 'w', newline='') as csvfile:
+                    csvwriter = csv.writer(csvfile)
+                    for row in self.rows:
+                        csvwriter.writerow([entry.get() for entry in row])
+                messagebox.showinfo("Success", "CSV file saved successfully!")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save CSV file: {e}")
+
+
+#this opens cv_maker
+def run_csv_maker(db:FunctionDatabase,import_function=None):
+    csvroot = tk.Tk()
+    app = CSVEditor(csvroot,db,import_function)
+    csvroot.mainloop()
+
+
+
 if __name__ == "__main__":
+    print("now main problem is slowness, can value refreshing be made faster?")
     random_things=["jok","345","235.734","vefvoj2","sdvsdv()","sdff(,23,sdf,3)","df()ewff()wef((we))","sdv(23,23(ewf))","sdffd4*evrve"]
     random_things +=["3*.4","e*sum(2,4x)","ln(e(2))","))45..5gorgm,er,990((","hi,hij|jo,jlik(","svv|forwar(23)","|erg|forwar()","forward(3)|sum(3"]
     random_things +=["sum,(prod(4),3|sum(2,3))","34.5+234/4","2*3*vefvoj2","gd()vsdv()","||ewgs-dff(,23,sdf,3)","4df(4)ewff(4)","sdv(sum(we.er))"]
@@ -1637,23 +2184,34 @@ if __name__ == "__main__":
     random_things +=["3,4,5","onko(4),onko(5),onko(6,7)",".3454646","34.34.,234.4,34,778","3.a.4.5b6c","455hoh()","1.34jau3saa4(345)"]
     random_things +=[",3,4,5","(,(5,4,))",",jep(6,7),","(,994.346,)","(34,34,877)","34,34,877"]
 
+    print("BUGI:jotain kummaa tapahtuu kun laittaa sarakkeisiin tyyppiä y+value[x,y] tyylisiä lausekkeita")
+    print(find_matching_parenthesis("(2,3,4)[a,b]",starting_location=11,parenthesis_type="[]"))
+    print(smallest_complete_term_interval("(a,b)[2]",7))
+    db= FunctionDatabase()
+    print(tensor_component([2,1],"(((2,3),(4,5)),((aa,bb),(cc,dd)))"))
+    db.process_all("joku=((((2,3),(4,5)),((aa,bb),(cc,dd))),(((24,37),(74,57)),((vvaa,hhbb),(tcc,ydd))))")
+    db.try_to_change_index("joku[1,2,1,2]",variable_assignment_code="hiphop")
+    db.try_to_change_index("joku[1,2,2,1]",variable_assignment_code="pophop")
+    db.try_to_change_index("joku[2,2,2,1]",variable_assignment_code="poppphop")
+
+    print(db.process_all("joku"))
+    db.try_to_change_index("joku[1,2]",variable_assignment_code="siplu")
+    print(db.process_all("joku"))
+
+
+#def main():
+    csvroot = tk.Tk()
+    app = CSVEditor(csvroot)
+    csvroot.mainloop()
+
     #speed_test2() #mennyt noin 6.4 sekuntia
     #cspeed_test()
-
-    print("tensor stuff",tensor_component([1,3,1],"(((a,b),(c,d),(e,f)),((1,2,3),(4,5),(6,7,8)))" ))
-
-    a=0.001*0.0001+7656
-    print("normal:",a)
-    b="{0:.12f}".format(a)
-    print("new:",b)
 
     #load_file_dialog()
 
 
     antti=AntiMather("5")
-    print("index_value_step",antti.indexvalue_step("INDEX((2,1),((1,2,3),(4,5,6)))"))
 
-    print(antti.double_parenthesis_off("(3)*(2,4)"))
     #for thing in random_things:
     #    for i in range(1):#len(thing)):
     #        print(thing)
@@ -1669,9 +2227,8 @@ if __name__ == "__main__":
     print("jotenkin on liityttävä inttisyyteen")
     print(random.random())
     print("muista testata jossain vaiheessa, että jos funktion parametreissä on esim x ja x2, niin eihän x2:n paikalle korvata x:n argumenttia")
-
+    print("LISÄÄ mahdollisuus kirjoittaa yksittäiseen CSV-editorin soluun kaava")
     print("zero cut:",zero_cut_string(0.5,max_nro_of_zeros=0))
-    db= FunctionDatabase()
 
     print(db.assign_variables_and_process("(random(1),random(1))"))
 
@@ -1716,7 +2273,7 @@ if __name__ == "__main__":
 
 
 
-    while True:
+    while False:
         strin=str(input("give a function name: "))
         assignment_str=input("give an assignement str: ")
         jaakko=Function(strin,parameter_list=["x","y"],assignment_str=assignment_str)
@@ -1741,21 +2298,6 @@ if __name__ == "__main__":
         print(db.one_function_replacer_str(math_rid_str))
         print(db.process_function_str(assign_str))
 
-    list_of_functions=[term_in_index,list_arguments_of_function_in_index]
-    list_to_str_repr=""
-    for i in range(len(list_of_functions)):
-        list_to_str_repr += str(i)+ ": "+list_of_functions[i].__name__+", "
-
-    function=list_of_functions[int(input("which function: "+list_to_str_repr))]
-    while True:
-        index=0
-        strin=input("give a string: ")
-        while index>=0:
-            index=int(input("give an index, -1 stops: "))
-            try:
-                print(function(strin,index))
-            except SyntaxError:
-                print("you created a syntax error, no worry, it happens")
 
 
 
