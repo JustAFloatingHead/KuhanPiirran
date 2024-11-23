@@ -93,7 +93,12 @@ def draw_drawing(file_str,width:int,height:int,topleft:int,bg_color,save_name:st
             gre=float(elem.inside_color[1])
             blu=float(elem.inside_color[2])
             if style=="basic":
+                if (red>1 or gre>1 or blu>1):
+                    print("BINGO!",red,gre,blu)
+                    print("problem",elem.vertices())
+                    red,gre,blu=0,0,0
                 objects.append({"type": "polygon","vertices": vertice_shift(vertice_y_flip(elem.vertices()),topleft),"color": hexagesimal_color(red,gre,blu)})
+
             for cline in elem.lines:
                 if cline.pen_down:
                     col="black" #if there is for example contour style, this is going to be the color
@@ -118,6 +123,19 @@ def draw_drawing(file_str,width:int,height:int,topleft:int,bg_color,save_name:st
                     pen_width=1
                 points=[point_shift(point_y_flip(elem.end_point1),topleft), point_shift(point_y_flip(elem.end_point2),topleft)]
                 objects.append({"type": "line","points": points,"color":col,"thickness":pen_width })
+        if elem.__class__.__name__== "Dot":
+            if elem.pen_down:
+                col="black" #if there is for example contour style, this is going to be the color
+                if style=="basic": #normal style color
+                    red=float(elem.pencolor[0])
+                    gre=float(elem.pencolor[1])
+                    blu=float(elem.pencolor[2])
+                    col=hexagesimal_color(red,gre,blu)
+                pen_width=elem.thickness
+                if style=="mincontour":
+                    pen_width=1
+                point=[point_shift(point_y_flip(elem.end_point1),topleft)]
+                objects.append({"type": "dot","point": point,"color":col,"thickness":pen_width })
         if elem.__class__.__name__ == "Writing" and style=="basic":
             wr=elem
             writing_loc= [wr.location[0]+topleft[0],-wr.location[1]+topleft[1]]
@@ -139,6 +157,11 @@ def draw_drawing(file_str,width:int,height:int,topleft:int,bg_color,save_name:st
             end_point2=item["points"][1]
             bounding_box2=[(end_point2[0]-radius,end_point2[1]-radius),(end_point2[0]+radius,end_point2[1]+radius)]
             draw.ellipse(bounding_box2,fill=item["color"])
+        elif item["type"] == "dot":
+            end_point1=item["point"][0]
+            radius=int(item["thickness"]/2)
+            bounding_box=[(end_point1[0]-radius,end_point1[1]-radius),(end_point1[0]+radius,end_point1[1]+radius)]
+            draw.ellipse(bounding_box,fill=item["color"])
         elif item["type"] == "writing":
             draw.text(item["location"],item["text"],fill=item["color"],font = item["font"],anchor="ld")
     # Save the image as a PNG file
@@ -721,6 +744,36 @@ def non_overlapping_triangles(point_list,width,height,min_angle,halving_propabil
 
 #returns an average color inside triangle
 def triangle_average_color(point1,point2,point3,filename):
+    im = Image.open(filename) # Can be many different formats.
+    pix = im.load()
+    (width,height)=im.size
+    min_x=int(max(0,min(point1[0],point2[0],point3[0],width)))
+    max_x=int(min(max(point1[0],point2[0],point3[0],1),width))
+    min_y=int(max(0,min(point1[1],point2[1],point3[1],height)))
+    max_y=int(min(max(point1[1],point2[1],point3[1],1),height))
+    redsum=0
+    greensum=0
+    bluesum=0
+    pixel_total=0
+    for i in range(min_x,max_x):
+        for j in range(min_y,max_y):
+            if Geometry.is_it_in_triangle((i,j),point1,point2,point3):
+                pixel_total +=1
+                redsum += pix[i,j][0]
+                greensum += pix[i,j][1]
+                bluesum += pix[i,j][2]
+    if pixel_total==0:#if triangle is very small, we just take the pixel color from closest point
+        return (pix[min(width-1,max_x),min(height-1,max_y)][0],pix[min(width-1,max_x),min(height-1,max_y)][1],pix[min(width-1,max_x),min(height-1,max_y)][2]) #there used to be grey color
+
+    else:
+        return (int(redsum/pixel_total),int(greensum/pixel_total),int(bluesum/pixel_total))
+
+
+
+#returns an average color inside triangle
+#NOTE this is the old version, that seemed to cause a bug, but this should be returned back if something starts to 
+#go wrong with new method
+def triangle_average_color_old(point1,point2,point3,filename):
     im = Image.open(filename) # Can be many different formats.
     pix = im.load()
     (width,height)=im.size
@@ -1309,10 +1362,8 @@ def photo_to_polygons(filename,prop:PngProperties):
     whiten_contour(modified_file,modified_file,2)
     for i in range(5):
         kosumis_off(modified_file,modified_file)
-
     poly_dict=extract_polygons_from_file(modified_file,shrinked_file,pd["pensize"],edge_length=int(1+pd["min_line_length"]/3)) 
     #3 in the last command should be the same as enlarging factor in png_to_p... to make min_line_length logical
-
     final_dict_of_polygons={}#here we list all the polygons that are sufficiently large size, 
     for poly in poly_dict.keys():
         if poly_dict[poly]>min(3,pd["min_line_length"]):#This value 3 is little random. it means minimum size of the polygon that is drawn and not leaved white
@@ -1774,19 +1825,6 @@ def filename_end(filename:str):
 #siis kuvan origo määräytyy koordinaattien vastaluvuista?
 
 if __name__ == "__main__":
-
-    prop=PngProperties()
-    prop.info()
-    prop.set_values({"contrast_points":99,"percentage":12})
-    prop.info()
-    prop.set_values({"detail_level":6,"contrast_points":100,"min_angle":15,"percentage":0.05,"end_contrast":2
-                    ,"pensize":2,"color_divisions":13,"style":"simple","max_nro_of_colors":50})
-    prop.set("end_height",700)
-    from_photo_to_cartoon(filename="pngs/Anakin.jpg",prop=prop,savename="pngs/Anni final Anakin.png")
-    #prop.set("end_width",50)
-
-    pd=prop.png_dict
-    pd["style"]="simo"
-    prop.info()
+    print("testing")
 
     #resize_png("yoda.png","ohena.png",prop)

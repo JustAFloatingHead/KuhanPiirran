@@ -540,6 +540,8 @@ if __name__ == "__main__":
     else:
         print("else")
 
+
+    print(color_tuple_shortener(color=[0.3,0.4,0.5],decimals=2))
 #    new_memory=replace_parameter_value_in_fragment(memory,2,3,77)
  #   print(new_memory)
   #  print(memory)
